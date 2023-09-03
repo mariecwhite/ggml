@@ -815,6 +815,9 @@ int main(int argc, char ** argv) {
     // submit the input prompt token-by-token
     // this reduces the memory usage during inference, at the cost of a bit of speed at the beginning
     std::vector<gpt_vocab::id> embd;
+    bool first_prediction = true;
+    int64_t first_prediction_latency_us = 0;
+    int64_t loop_prediction_latency_us = 0;
 
     for (size_t i = embd.size(); i < embd_inp.size() + params.n_predict; i++) {
         // predict
@@ -826,7 +829,17 @@ int main(int argc, char ** argv) {
                 return 1;
             }
 
-            t_predict_us += ggml_time_us() - t_start_us;
+            const int64_t t_latency_us = ggml_time_us() - t_start_us;
+            if (first_prediction) {
+                first_prediction_latency_us = t_latency_us;
+                first_prediction = false;
+                //printf("\nFirst latency at %ld: %f ms\n", i, t_latency_us / 1000.f);
+            } else {
+                loop_prediction_latency_us += t_latency_us;
+                //printf("\nPrediction latency at %ld: %f ms\n", i, t_latency_us / 1000.f);
+            }
+
+            t_predict_us += t_latency_us;
         }
 
         n_past += embd.size();
@@ -882,6 +895,8 @@ int main(int argc, char ** argv) {
         printf("\n\n");
         printf("%s:     load time = %8.2f ms\n", __func__, t_load_us/1000.0f);
         printf("%s:   sample time = %8.2f ms\n", __func__, t_sample_us/1000.0f);
+        printf("%s: first predict time = %8.2f ms\n", __func__, first_prediction_latency_us/1000.0f);
+        printf("%s:  loop predict time = %8.2f ms / %.2f ms per token\n", __func__, loop_prediction_latency_us/1000.0f, loop_prediction_latency_us/1000.0f/(n_past - embd_inp.size()));
         printf("%s:  predict time = %8.2f ms / %.2f ms per token\n", __func__, t_predict_us/1000.0f, t_predict_us/1000.0f/n_past);
         printf("%s:    total time = %8.2f ms\n", __func__, (t_main_end_us - t_main_start_us)/1000.0f);
     }
